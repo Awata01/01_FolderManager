@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from PySide6.QtWidgets import (
     QApplication, QDialog, QLabel, QPushButton, QTableWidget
     , QTableWidgetItem, QCheckBox, QHBoxLayout, QVBoxLayout, QFileDialog
@@ -9,15 +10,18 @@ from PySide6.QtCore import Qt, QFileInfo
 from PySide6.QtGui import QIcon, QFont, QColor, QBrush
 
 class SelectFolderManager(QDialog):
-    def __init__(self, extension_filter: str="All Files (*)", parent=None):
+    def __init__(self, file_filter: str="All Files (*)", parent=None):
         """
         SelectFolderManagerの初期化メソッド
 
         Args:
-            extension_filter (str): ファイル選択ダイアログで使用するフィルタ
+            file_filter (str): ファイル選択ダイアログで使用するフィルタ
             parent (QWidget): 親ウィジェット
         """
         super(SelectFolderManager, self).__init__(parent)
+
+        # file_filter をインスタンス変数として保存
+        self.file_filter = file_filter
 
         # ウィンドウの設定
         self.setWindowTitle("SelectFileManger")
@@ -26,13 +30,15 @@ class SelectFolderManager(QDialog):
 
         # ラベルの設定
         self.label_list = QLabel("📝選択ファイルリスト")
+        self.label_accept_extension = QLabel(f"許可するファイル： {self.file_filter}")
+        self.label_accept_extension.setStyleSheet("font-size: 10px;")
         self.label_folder = QLabel("📄D&Dでも選択可能")
         self.label_folder.setStyleSheet("font-size: 10px;")
         self.label_folder.setAlignment(Qt.AlignRight)
 
         # ボタンの設定
         self.push_button_select_file = QPushButton("📂エクスプローラーから選択")
-        self.push_button_select_file.clicked.connect(lambda: self.select_by_explorer(extension_filter))
+        self.push_button_select_file.clicked.connect(lambda: self.select_by_explorer())
 
         self.push_button_next = QPushButton("次へ")
         self.push_button_next.setFixedSize(80, 25)
@@ -57,10 +63,10 @@ class SelectFolderManager(QDialog):
 
         # レイアウトの設定
         layout_V = QVBoxLayout()
-        layout_V.addSpacing(5)
         layout_V.addWidget(self.label_list)
+        layout_V.addWidget(self.label_accept_extension)
         layout_V.addWidget(self.table_widget)
-        layout_V.addSpacing(10)
+        layout_V.addSpacing(5)
 
         layout_H = QHBoxLayout()
         layout_H.addWidget(self.push_button_delete)
@@ -83,7 +89,9 @@ class SelectFolderManager(QDialog):
             event (QDragEnterEvent): ドラッグされたオブジェクトに関するイベント
         """
         if event.mimeData().hasUrls():
-            event.acceptProposedAction()
+            extension_list = self.get_extension_from_file_filter()
+            if all(os.path.splitext(url.toString())[1] in extension_list for url in event.mimeData().urls()):
+                event.acceptProposedAction()
 
     def dropEvent(self, event):
         """
@@ -96,23 +104,21 @@ class SelectFolderManager(QDialog):
             file_path = url.toLocalFile()
             self.add_file_to_table(file_path)
 
-    def select_by_explorer(self, extension_filter: str):
+    def select_by_explorer(self):
         """
         ファイルダイアログを使ってファイルを選択する処理
-
-        Args:
-            extension_filter (str): ファイル選択時のフィルタ
         """
         file_dialog = QFileDialog(self)
         file_dialog.setFileMode(QFileDialog.ExistingFiles)
-        file_dialog.setNameFilter(extension_filter)
+        # ショートカットファイルの表示を無効化
+        file_dialog.setNameFilter(self.file_filter)
         file_dialog.setViewMode(QFileDialog.Detail)
 
         if file_dialog.exec():
             for file_path in file_dialog.selectedFiles():
                 self.add_file_to_table(file_path)
 
-    def add_file_to_table(self, file_path):
+    def add_file_to_table(self, file_path: QTableWidgetItem):
         """
         テーブルにファイルを追加する処理
 
@@ -199,6 +205,7 @@ class SelectFolderManager(QDialog):
             if chk_bx.isChecked():
                 self.table_widget.removeRow(row)
         self.table_item_count()
+        self.checkbox_state_changed()
 
     def cell_doubleClicked_event(self, index):
         """テーブルのセルがダブルクリックされたときの処理
@@ -215,7 +222,19 @@ class SelectFolderManager(QDialog):
                 # vscodeでファイルを開く
                 os.system(fr'code "{file_path}"')
 
-    def return_file_path(self):
+    def get_extension_from_file_filter(self) -> list:
+        """
+        ファイルフィルタから拡張子を取得する処理
+
+        Returns:
+            str: ファイルフィルタから拡張子をリストで取得
+        """
+        pattern = r"\*(\.\w+)"
+        matches = re.findall(pattern, self.file_filter)
+
+        return matches
+
+    def return_file_path(self) -> list:
         """
         テーブルに表示されたファイルのパスを返す処理
 
@@ -224,17 +243,17 @@ class SelectFolderManager(QDialog):
         """
         return getattr(self, 'file_path_list', [])
 
-def show_dialog(extension_filter="All Files (*)"):
+def show_dialog(file_filter="All Files (*)"):
     """
     SelectFolderManagerのダイアログを表示し、ファイルのパスを取得する関数
 
     Args:
-        extension_filter (str): ファイル選択時のフィルタ
+        file_filter (str): ファイル選択時のフィルタ
     """
     app = QApplication(sys.argv)
-    slm = SelectFolderManager(extension_filter=extension_filter)
+    slm = SelectFolderManager(file_filter=file_filter)
     slm.exec()
     return slm.return_file_path()
 
 if __name__ == "__main__":
-    print(show_dialog("*.py*"))
+    show_dialog("Pythonファイル(*.py)")
