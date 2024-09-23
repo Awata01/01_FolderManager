@@ -9,19 +9,29 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QFileInfo
 from PySide6.QtGui import QIcon, QFont, QColor, QBrush
 
-class SelectFolderManager(QDialog):
-    def __init__(self, file_filter: str="All Files (*)", parent=None):
+sys.path.append(r"C:\Users\awata\Awata01\Programming\00_Common\src")
+from custom_logging import CustomLogging
+
+class SelectFileManager(QDialog):
+    # SelectFileManager.Accepted（1）: 正常終了
+    # SelectFileManager.Rejected（0）：異常終了
+    def __init__(self, file_filter: str="All Files (*.*)", parent=None) -> None:
         """
-        SelectFolderManagerの初期化メソッド
+        SelectFileManagerの初期化メソッド
 
         Args:
-            file_filter (str): ファイル選択ダイアログで使用するフィルタ
+            file_filter (str): ファイル選択ダイアログで使用するフィルタ\n
+                記述テンプレート：表示テキスト (*.{拡張子1} *.{拡張子2}...)\n
+                Default: All Files (\*.\*)
             parent (QWidget): 親ウィジェット
         """
-        super(SelectFolderManager, self).__init__(parent)
+        self.logger = CustomLogging("SelectFileManager")
 
-        # file_filter をインスタンス変数として保存
+        super().__init__(parent)
+
+        # インスタンス変数
         self.file_filter = file_filter
+        self.file_path_list: list[str] = []
 
         # ウィンドウの設定
         self.setWindowTitle("SelectFileManger")
@@ -81,7 +91,7 @@ class SelectFolderManager(QDialog):
         # ドラッグ＆ドロップの設定
         self.setAcceptDrops(True)
 
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event) -> None:
         """
         ドラッグイベントが発生した際の処理
 
@@ -90,10 +100,21 @@ class SelectFolderManager(QDialog):
         """
         if event.mimeData().hasUrls():
             extension_list = self.get_extension_from_file_filter()
-            if all(os.path.splitext(url.toString())[1] in extension_list for url in event.mimeData().urls()):
-                event.acceptProposedAction()
+            for url in event.mimeData().urls():
 
-    def dropEvent(self, event):
+
+                if (
+                    url.isLocalFile()   # ローカルファイル存在チェック
+                    and not os.path.isdir(url.toLocalFile())    # ディレクトリの場合は除外
+                    and (
+                        os.path.splitext(url.toLocalFile())[1] in extension_list    # 拡張子チェック
+                        or ".*" in extension_list   # フィルタが「All Files (*.*)」の場合はTrue
+                    )
+                ):
+                    event.acceptProposedAction()
+                else: break
+
+    def dropEvent(self, event) -> None:
         """
         ドロップイベントが発生した際の処理
 
@@ -104,7 +125,7 @@ class SelectFolderManager(QDialog):
             file_path = url.toLocalFile()
             self.add_file_to_table(file_path)
 
-    def select_by_explorer(self):
+    def select_by_explorer(self) -> None:
         """
         ファイルダイアログを使ってファイルを選択する処理
         """
@@ -118,23 +139,22 @@ class SelectFolderManager(QDialog):
             for file_path in file_dialog.selectedFiles():
                 self.add_file_to_table(file_path)
 
-    def add_file_to_table(self, file_path: QTableWidgetItem):
+    def add_file_to_table(self, file_path: str) -> None:
         """
         テーブルにファイルを追加する処理
 
         Args:
             file_path (str): 追加するファイルのパス
         """
-        file_name = QTableWidgetItem(file_path.split("/")[-1])
+        file_name = QTableWidgetItem(os.path.basename(file_path))
         file_icon = QFileIconProvider().icon(QFileInfo(file_path))
         file_name.setIcon(file_icon)
         file_name.setForeground(QBrush(QColor("blue")))
         font = QFont()
         font.setUnderline(True)
         file_name.setFont(font)
-        file_path_item = QTableWidgetItem(file_path)
 
-        self.delete_file_from_table(file_path_item)
+        self.delete_file_from_table(file_path)
 
         last_row = self.table_widget.rowCount()
         self.table_widget.insertRow(last_row)
@@ -149,24 +169,28 @@ class SelectFolderManager(QDialog):
 
         self.table_widget.setCellWidget(last_row, 0, chk_wdg)
         self.table_widget.setItem(last_row, 1, file_name)
-        self.table_widget.setItem(last_row, 2, file_path_item)
+        self.table_widget.setItem(last_row, 2, QTableWidgetItem(file_path))
+
+        self.logger.info(f"ファイル追加, 表示行番号:{last_row+1}, ファイル名:{file_name.text()}, ファイルパス:{file_path}")
 
         self.table_item_count()
 
-    def delete_file_from_table(self, file_path: QTableWidgetItem):
+    def delete_file_from_table(self, file_path: str) -> None:
         """
         テーブルからファイルを削除する処理
 
         Args:
-            file_path (QTableWidgetItem): 削除対象のファイルパスアイテム
+            file_path_item str: 削除対象のファイルパスアイテム
         """
         for row in range(self.table_widget.rowCount()):
             item = self.table_widget.item(row, 2)
-            if item is not None and item.text() == file_path.text():
+            if item is not None and item.text() == file_path:
+                file_name = self.table_widget.item(row, 1).text()
                 self.table_widget.removeRow(row)
+                self.logger.info(f"ファイル削除, 表示行番号:{row+1}, ファイル名:{file_name}, ファイルパス:{file_path}")
                 break
 
-    def checkbox_state_changed(self):
+    def checkbox_state_changed(self) -> None:
         """
         チェックボックスの状態が変更されたときの処理
         """
@@ -176,7 +200,7 @@ class SelectFolderManager(QDialog):
         )
         self.push_button_delete.setEnabled(checked_count > 0)
 
-    def table_item_count(self):
+    def table_item_count(self) -> None:
         """
         テーブル内のアイテム数を確認し、ボタンの有効・無効を設定する処理
         """
@@ -185,29 +209,31 @@ class SelectFolderManager(QDialog):
         if item_count == 0:
             self.push_button_delete.setEnabled(False)
 
-    def button_next_event(self):
+    def button_next_event(self) -> None:
         """
         「次へ」ボタンが押されたときの処理
         """
-        file_path_list = []
+        self.file_path_list = []
         for row in range(self.table_widget.rowCount()):
             file_path = self.table_widget.item(row, 2).text()
-            file_path_list.append(file_path)
-        self.file_path_list = file_path_list
-        self.accept()  # ダイアログを閉じる
+            self.file_path_list.append(file_path)
 
-    def button_delete_event(self):
+        self.accept()
+        self.logger.info("SelectFileMangerが正常終了しました。")
+
+    def button_delete_event(self) -> None:
         """
         「削除」ボタンが押されたときの処理
         """
         for row in reversed(range(self.table_widget.rowCount())):
             chk_bx = self.table_widget.cellWidget(row, 0).findChild(QCheckBox)
             if chk_bx.isChecked():
-                self.table_widget.removeRow(row)
+                file_path = self.table_widget.item(row, 2).text()
+                self.delete_file_from_table(file_path)
         self.table_item_count()
         self.checkbox_state_changed()
 
-    def cell_doubleClicked_event(self, index):
+    def cell_doubleClicked_event(self, index) -> None:
         """テーブルのセルがダブルクリックされたときの処理
 
         Args:
@@ -221,6 +247,7 @@ class SelectFolderManager(QDialog):
                 file_path = file_path_item.text()
                 # vscodeでファイルを開く
                 os.system(fr'code "{file_path}"')
+                self.logger.info(f"ファイルを開きます。{file_path}")
 
     def get_extension_from_file_filter(self) -> list:
         """
@@ -229,31 +256,22 @@ class SelectFolderManager(QDialog):
         Returns:
             str: ファイルフィルタから拡張子をリストで取得
         """
-        pattern = r"\*(\.\w+)"
+        pattern = r"(\.[^\s,\)]+)"
         matches = re.findall(pattern, self.file_filter)
 
         return matches
 
-    def return_file_path(self) -> list:
-        """
-        テーブルに表示されたファイルのパスを返す処理
-
-        Returns:
-            list: 選択されたファイルのパスのリスト
-        """
-        return getattr(self, 'file_path_list', [])
-
-def show_dialog(file_filter="All Files (*)"):
-    """
-    SelectFolderManagerのダイアログを表示し、ファイルのパスを取得する関数
-
-    Args:
-        file_filter (str): ファイル選択時のフィルタ
-    """
-    app = QApplication(sys.argv)
-    slm = SelectFolderManager(file_filter=file_filter)
-    slm.exec()
-    return slm.return_file_path()
-
 if __name__ == "__main__":
-    show_dialog("Pythonファイル(*.py)")
+    logger = CustomLogging("SelectFileManager_main")
+    logger.process_start()
+
+    app = QApplication(sys.argv)
+    dialog = SelectFileManager()
+
+    match dialog.exec():
+        case SelectFileManager.Accepted:
+            file_list = dialog.file_path_list
+            logger.info(f"選択されたファイルリスト：{file_list}")
+            logger.process_end()
+        case SelectFileManager.Rejected:
+            logger.info("SelectFileManagerが強制的に終了")
